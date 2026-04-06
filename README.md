@@ -1,0 +1,1 @@
+# Comparaci-n-de-Paradigmas-de-Paralelismo
