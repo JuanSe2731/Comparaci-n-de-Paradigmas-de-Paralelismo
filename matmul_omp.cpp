@@ -1,6 +1,5 @@
-// matmul_omp_gpu.cpp — Multiplicación de matrices con OpenMP GPU Offload
-// Compilar (NVIDIA HPC SDK): nvc++ -O2 -mp=gpu -target=gpu -o matmul_omp_gpu matmul_omp_gpu.cpp
-// Compilar (GCC fallback):   g++ -O2 -fopenmp -o matmul_omp_gpu matmul_omp_gpu.cpp
+// matmul_omp.cpp — Multiplicación de matrices con OpenMP (CPU)
+// Compilar: g++ -O2 -fopenmp -o matmul_omp matmul_omp.cpp
 #include <omp.h>
 #include <cstdio>
 #include <cstdlib>
@@ -24,22 +23,16 @@ void matmul_serial(const float* A, const float* B, float* C, int N) {
     }
 }
 
-// ─── Kernel OpenMP GPU Offload ───
-void matmul_omp_gpu(const float* A, const float* B, float* C, int N) {
-    // Región de datos: transferir A y B al device, recibir C de vuelta
-    #pragma omp target data map(to: A[0:N*N], B[0:N*N]) map(from: C[0:N*N])
-    {
-        // Región de cómputo: distribuir trabajo en teams y parallel for
-        // No se necesita map aquí porque ya está en la región target data
-        #pragma omp target teams distribute parallel for collapse(2)
-        for (int i = 0; i < N; i++) {
-            for (int j = 0; j < N; j++) {
-                float acc = 0.0f;
-                for (int k = 0; k < N; k++) {
-                    acc += A[i*N + k] * B[k*N + j];
-                }
-                C[i*N + j] = acc;
+// ─── Kernel OpenMP CPU ───
+void matmul_omp(const float* A, const float* B, float* C, int N) {
+    #pragma omp parallel for collapse(2) schedule(static)
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            float acc = 0.0f;
+            for (int k = 0; k < N; k++) {
+                acc += A[i*N + k] * B[k*N + j];
             }
+            C[i*N + j] = acc;
         }
     }
 }
@@ -60,32 +53,11 @@ int main(int argc, char** argv) {
     if (argc > 1) N = atoi(argv[1]);
 
     printf("============================================\n");
-    printf("  MULTIPLICACIÓN DE MATRICES — OpenMP GPU\n");
+    printf("  MULTIPLICACIÓN DE MATRICES — OpenMP CPU\n");
     printf("============================================\n");
     printf("Tamaño de matriz: %d x %d\n", N, N);
+    printf("Hilos OpenMP: %d\n", omp_get_max_threads());
     printf("Repeticiones: %d (se reporta la mediana)\n", NREP);
-
-    // ─── Detección de dispositivo ───
-    int num_devices = omp_get_num_devices();
-    int default_device = omp_get_default_device();
-    int initial_device = omp_get_initial_device();
-    printf("Dispositivos OpenMP disponibles: %d\n", num_devices);
-    printf("Dispositivo por defecto: %d\n", default_device);
-    printf("Dispositivo inicial (host): %d\n", initial_device);
-
-    // Verificar si realmente se ejecuta en GPU
-    int is_host = 1;
-    #pragma omp target map(from: is_host)
-    {
-        is_host = omp_is_initial_device();
-    }
-
-    if (is_host) {
-        printf("⚠ Ejecutando en: HOST (CPU) — Fallback, no se detectó GPU offload\n");
-        printf("  (Para GPU real, compilar con nvc++ -mp=gpu o clang con offload)\n");
-    } else {
-        printf("✓ Ejecutando en: DEVICE (GPU)\n");
-    }
     printf("--------------------------------------------\n");
 
     // ─── Asignación de memoria ───
@@ -93,6 +65,7 @@ int main(int argc, char** argv) {
     float* A = (float*)malloc(bytes);
     float* B = (float*)malloc(bytes);
     float* C = (float*)malloc(bytes);
+    float* C_ref = NULL;
 
     if (!A || !B || !C) {
         fprintf(stderr, "Error: No se pudo asignar memoria\n");
@@ -104,7 +77,7 @@ int main(int argc, char** argv) {
 
     // ─── Calentamiento (1 ejecución sin medir) ───
     printf("Ejecutando calentamiento...\n");
-    matmul_omp_gpu(A, B, C, N);
+    matmul_omp(A, B, C, N);
 
     // ─── Medición: NREP repeticiones con omp_get_wtime() ───
     std::vector<double> tiempos(NREP);
@@ -115,7 +88,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < N*N; i++) C[i] = 0.0f;
 
         double t0 = omp_get_wtime();
-        matmul_omp_gpu(A, B, C, N);
+        matmul_omp(A, B, C, N);
         double t1 = omp_get_wtime();
 
         double ms = (t1 - t0) * 1000.0;
@@ -138,7 +111,7 @@ int main(int argc, char** argv) {
     double max_error = 0.0;
     if (N <= 1024) {
         printf("Verificando contra kernel serial...\n");
-        float* C_ref = (float*)malloc(bytes);
+        C_ref = (float*)malloc(bytes);
         if (C_ref) {
             matmul_serial(A, B, C_ref, N);
             for (int i = 0; i < N*N; i++) {
@@ -158,7 +131,7 @@ int main(int argc, char** argv) {
 
     // ─── Línea CSV ───
     printf("--------------------------------------------\n");
-    printf("CSV: OMP_GPU,%d,%.4f,%.4f,%.6e\n", N, t_ms, gflops, max_error);
+    printf("CSV: OMP_CPU,%d,%.4f,%.4f,%.6e\n", N, t_ms, gflops, max_error);
     printf("============================================\n");
 
     // ─── Liberar memoria ───
