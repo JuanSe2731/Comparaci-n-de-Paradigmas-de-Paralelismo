@@ -56,7 +56,6 @@ pip install matplotlib seaborn pandas numpy
 │   ├── speedup_vs_serial.png
 │   ├── speedup_vs_omp_cpu.png
 │   └── tiempo_barras.png
-├── CONTEXT.md              # Contexto y especificación del taller
 └── README.md
 ```
 
