@@ -405,6 +405,12 @@ __global__ void gemm_cuda_naive(const float* A, const float* B, float* C, int N)
 
 ---
 
+# Link GitHub
+
+https://github.com/JuanSe2731/Comparaci-n-de-Paradigmas-de-Paralelismo.git
+
+---
+
 <!-- _class: lead -->
 <!-- _paginate: false -->
 
