@@ -142,13 +142,40 @@ $$C[i][j] = \sum_{k=0}^{N-1} A[i][k] \cdot B[k][j]$$
 
 ---
 
-# ¿Qué es OpenMP GPU Offload?
+# API de OpenMP para GPU (Target Offloading)
 
-Extensión de OpenMP (v4.0+) para **ejecutar código en GPUs** con directivas.
+OpenMP introduce directivas de offloading a partir de la **versión 4.0** (2013), con mejoras en **4.5**, **5.0** y **5.2**.
+
+### Directivas principales
+
+| Directiva | Función |
+|-----------|--------|
+| `#pragma omp target` | Ejecutar una región de código en el device (GPU) |
+| `#pragma omp target data` | Crear una región de datos en el device |
+| `#pragma omp target enter/exit data` | Transferencia explícita de datos (asíncrona) |
+| `#pragma omp target update` | Sincronizar datos entre host y device |
+| `#pragma omp teams` | Crear ligas independientes de hilos |
+| `#pragma omp distribute` | Repartir iteraciones entre teams |
+
+---
+
+### Funciones de runtime
+
+| Función | Descripción |
+|---------|------------|
+| `omp_get_num_devices()` | Número de dispositivos disponibles |
+| `omp_get_default_device()` | ID del device por defecto |
+| `omp_is_initial_device()` | Retorna 1 si se ejecuta en el host (CPU) |
+| `omp_get_num_teams()` | Número de teams activos |
+| `omp_get_team_num()` | ID del team actual |
+
+---
+
+# CUDA Naive vs OpenMP GPU
 
 | Aspecto | CUDA | OpenMP Target |
 |---------|------|---------------|
-| Portabilidad | Solo NVIDIA | Multi-vendor |
+| Portabilidad | Solo NVIDIA | Multi-proveedor |
 | Modelo | Kernel explícito | Directivas `#pragma` |
 | Complejidad | Alta (~50 líneas extra) | Baja (~3 pragmas) |
 | Código fuente | `.cu` separado | Mismo `.cpp` |
@@ -199,6 +226,31 @@ target                    ← Offload al dispositivo GPU
 | `distribute` | `blockIdx` | Reparto entre bloques |
 | `parallel for` | `threadIdx` | Hilos dentro del bloque |
 | `collapse(2)` | Grid 2D | Aplanar loops anidados |
+
+---
+
+# Cláusulas `num_teams` y `thread_limit`
+
+Controlan la **ocupancia** del GPU: cuántos bloques y cuántos hilos por bloque se lanzan.
+
+```cpp
+#pragma omp target teams distribute parallel for \
+    num_teams(NUM_TEAMS) thread_limit(THREADS_PER_TEAM) collapse(2)
+```
+
+| Cláusula | Equivalente CUDA | Efecto |
+|----------|-----------------|--------|
+| `num_teams(N)` | `gridDim` (bloques) | Máximo N teams concurrentes |
+| `thread_limit(T)` | `blockDim` (hilos/bloque) | Máximo T hilos por team |
+
+### Impacto en ocupancia
+
+- **Pocos teams** → SMs del GPU subutilizados, baja ocupancia
+- **Muchos teams, pocos hilos** → overhead de scheduling, registros desperdiciados
+- **Óptimo**: `num_teams` ≥ N° de SMs, `thread_limit` = 128-256 (balance registros/ocupancia)
+
+> En nuestra GTX 1650 Ti (16 SMs), el compilador elige automáticamente.
+> Para GEMM, un buen punto de partida manual: `num_teams(1024) thread_limit(256)`.
 
 ---
 
